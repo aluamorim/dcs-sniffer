@@ -1,0 +1,336 @@
+
+"""
+	entity.py
+
+	This Module defines all basic objects used in the
+	system
+
+	Author: Anderson Amorim
+	Date: 23/02/2017
+"""
+import sys
+import time
+import datetime
+import random
+from .definitions import *
+
+
+
+class Entity(object):
+
+	def load(self, byteArray):
+		pass
+	def toArray(self):
+		pass
+
+	def toString(self):
+		pass
+	def timeStamp(self):
+		pass
+
+class Package(Entity):
+
+	PCKG_TYPES = ['PTT', 'HK']
+	type=''
+	raw_data = []
+	
+	def __init__(self):
+		super().__init__(self)
+
+
+class RTC(Entity):
+	YEAR = 0
+	MONTH = 0
+	DAY = 0
+	HOUR = 0
+	MINUTE = 0
+	SECOND = 0 
+	WEEK = 0
+	WDAY = 0
+
+	def __init__(self):
+		now = datetime.datetime.now()
+		self.YEAR = now.year-1900
+		self.MONTH = now.month
+		self.DAY = now.day
+		self.HOUR = now.hour
+		self.MINUTE = now.minute
+		self.SECOND = now.second
+		self.WEEK = 0
+		self.WDAY = 0
+
+
+	def load(self, byteArray):
+		self.YEAR = byteArray[0]
+		self.MONTH = byteArray[1]
+		self.DAY = byteArray[2]
+		self.HOUR = byteArray[3]
+		self.MINUTE = byteArray[4]
+		self.SECOND = byteArray[5]
+		if (len(byteArray)>6):
+			self.WEEK = byteArray[6]
+			self.WDAY = byteArray[7]
+		else:
+			self.WEEK = 1
+			self.WDAY = 1
+	def toArray(self):
+		return [self.YEAR,self.MONTH,self.DAY,self.HOUR,self.MINUTE,self.SECOND,self.WEEK ,self.WDAY]
+
+	def toString(self):
+		vec = self.toArray()
+		return ''.join((map(chr, vec)))
+
+	def timeStamp (self):
+		return "%02d/%02d/%04d %02d:%02d:%02d"%(self.DAY, self.MONTH, (self.YEAR+1900), self.HOUR, self.MINUTE, self.SECOND)
+
+class HKPackage(Package):
+	
+	pckgType=0 # 2 byte
+	pckgSt=0
+	adc_rms = 0 # 2 byte
+	current_sensor1 = 0 # 2 bytes
+	current_sensor2 = 0 # 2 bytes
+	pll_sync = 0	# 1 byte
+	over_current_fail = 0 # 1 byte
+	timeTag  = [] # 8 byte
+
+
+	def __init__(self, dummy=False):
+		
+		self.type = Package.PCKG_TYPES[1] # self.type='HK'
+
+		if (dummy==True):
+			#b = range(0, 56)
+			b = [random.randint(0,127) for p in range(0,HK_PACKAGE_SIZE)]
+			self.load(b)
+			rtc = RTC()
+			self.timeTag = rtc.toArray()
+
+	'''
+		Loads package fields from an array
+		of bytes. The length of the array must be of 
+		HK_PACKAGE_SIZE or less
+		Reference:
+
+			typedef struct {
+					uint8_t pckgType;
+					uint8_t pckgSt;
+					uint16_t adc_rms;
+					uint16_t current_sensor1;
+					uint16_t current_sensor2;
+					uint8_t pll_sync;
+					uint8_t over_current_fail;
+					uint8_t timeTag [HK_TIME_TAG_OCTETS_LENGTH];
+			}HKPackage_typedef;
+	'''
+	def load(self, byteArray):
+		if (len(byteArray) < HK_PACKAGE_SIZE):
+			return -1
+
+		self.pckgType = byteArray[0]
+		self.pckgSt = byteArray[1]
+		self.adc_rms = byteArray[2] & 0x00FF
+		self.adc_rms |= (byteArray[3]<<8)
+
+		self.current_sensor1 = byteArray[4] & 0x00FF
+		self.current_sensor1 |= (byteArray[5]<<8)
+
+		self.current_sensor2 = byteArray[6] & 0x00FF
+		self.current_sensor2 |= (byteArray[7]<<8)
+
+
+		self.pll_sync = byteArray[8]
+		self.over_current_fail = byteArray[9]
+
+		self.timeTag  = list(byteArray[HK_TIME_TAG_START:(HK_TIME_TAG_START+HK_TIME_TAG_LENGTH)])
+		
+		self.raw_data = byteArray
+
+	def toArray(self):
+		return self.raw_data
+
+	def toString(self):
+		vec = self.toArray()
+		return ''.join((map(chr, vec)))
+
+	def timeStamp(self):
+		rtc = RTC()
+		rtc.load(self.timeTag)
+		return rtc.timeStamp()
+
+
+class PTTPackage(Package):
+	msgType=0
+	msgSubType=0
+	satelliteCode=0
+	satelliteSubCode=0
+	sourceSiteCode=0
+	subsystemType_Number=0
+	receiveSiteCode=0
+	spare=0
+	channelId=0
+	timeTag = []
+	freqMeasure =[]
+	msgLength=0
+	channelStatus=0
+	receivedSyncWord=0
+	platformId =[]
+	sensorData=0
+
+	def __init__(self, dummy=False):
+		
+		self.type = Package.PCKG_TYPES[0] # self.type='PTT'
+
+		if (dummy==True):
+			#b = range(0, 56)
+			b = [random.randint(0,127) for p in range(0,PTT_PACKAGE_SIZE)]
+			self.load(b)
+			rtc = RTC()
+			self.timeTag = rtc.toArray()
+
+	'''
+		Loads package fields from an array
+		of bytes. The length of the array must be of 
+		PTT_PACKAGE_SIZE or less
+	'''
+	def load(self, byteArray):
+		if (len(byteArray) < PTT_PACKAGE_SIZE):
+			return -1
+		self.msgType = byteArray[0]
+		self.msgSubType = byteArray[1]
+		self.satelliteCode = byteArray[2]
+		self.satelliteSubCode = byteArray[3]
+		self.sourceSiteCode = byteArray[4]
+		self.subsystemType_Number = byteArray[5]
+		self.receiveSiteCode = byteArray[6]
+		self.spare = byteArray[7]
+		self.channelId = byteArray[8]
+		self.timeTag  = list(byteArray[PTT_TIME_TAG_START:(PTT_TIME_TAG_START+PTT_TIME_TAG_LENGTH)])
+		self.freqMeasure  = list(byteArray[PTT_FREQ_MEASURE_START:(PTT_FREQ_MEASURE_START+PTT_FREQ_MEASURE_LENGTH)])
+		self.msgLength = byteArray[18]
+		self.channelStatus = byteArray[19]
+		self.receivedSyncWord = byteArray[20]
+		self.platformId  = list(byteArray[PTT_PLATFORM_ID_START:(PTT_PLATFORM_ID_START+PTT_PLATFORM_ID_LENGTH)])
+		self.sensorData = list(byteArray[PTT_SENSOR_DATA_START:(PTT_SENSOR_DATA_START+PTT_SENSOR_DATA_LENGTH)])
+
+		self.raw_data = byteArray
+
+	def toArray(self):
+		# byteArray = [self.msgType,self.msgSubType,self.satelliteCode,self.satelliteSubCode,
+		# self.sourceSiteCode,self.subsystemType_Number,self.receiveSiteCode,
+		# self.spare,self.channelId]
+
+		# byteArray = sum([self.timeTag], byteArray)
+		# byteArray = sum([self.freqMeasure], byteArray)
+		# byteArray = sum([[self.msgLength]], byteArray)
+		# byteArray = sum([[self.channelStatus]], byteArray)
+		# byteArray = sum([[self.receivedSyncWord]], byteArray)
+		# byteArray = sum([self.platformId], byteArray)
+		# byteArray = sum([self.sensorData], byteArray)
+
+		# return byteArray
+		return self.raw_data
+
+	def toString(self):
+		vec = self.toArray()
+		return ''.join((map(chr, vec)))
+
+	def timeStamp(self):
+		rtc = RTC()
+		rtc.load(self.timeTag)
+		return rtc.timeStamp()
+
+	def platformIdValue(self):
+		value = 0
+		#BIG ENDIAN
+		for f in self.platformId:
+			value = value<<8;
+			value = value | (f&0x00FF)
+
+		# LITTLE ENDIAN
+		# for i in range(0, len(self.platformId)):
+		# 	tmp = freqMeasure[i]<< (i*8)
+		# 	value = value | (tmp)
+		return value
+
+	def freqValue(self):
+		value = 0
+		#BIG ENDIAN
+		for f in self.freqMeasure:
+			value = value<<8;
+			value = value | (f&0x00FF)
+
+		# LITTLE ENDIAN
+		# for i in range(0, len(self.freqMeasure)):
+		# 	tmp = freqMeasure[i]<< (i*8)
+		# 	value = value | (tmp)		
+
+		return value
+
+class Command(Entity):
+
+	id=0
+	st=0
+	param=0
+
+	def __init__(self, id=None):
+		self.id = id
+		self.st = 0
+		self.param = [0,0,0,0,0,0,0,0]
+
+	def setId(self, newId):
+		self.id = newId
+
+	def getId(self):
+		return self.id
+
+	def setParam(self, bytes):
+		self.param = bytes
+
+	def getParam(self, newParam):
+		return self.param
+
+	def toArray(self):
+		vec = [self.id, self.st]
+		return sum([self.param],vec)
+
+	def toString(self):
+		vec = self.toArray()
+		return ''.join((map(chr, vec)))
+
+	# builds a command instance using
+	# the first 10 bytes of the array
+	def load(self, byteArray):
+		if (len(byteArray) >=10):
+			self.id = byteArray[0]
+			self.st = byteArray[1]
+			self.param = byteArray[2:10] # 10 is exclusive
+	
+	def timeStamp(self):
+		return ''
+
+
+if __name__=='__main__':
+	
+	print("Package Test")
+	c = PTTPackage()
+	b= range(0,PTT_PACKAGE_SIZE)
+
+	c.load(b);
+
+	print ("----------------------------------------------------")
+	print (c.toArray())
+	print ("----------------------------------------------------")
+	print (c.toString())
+	print ("----------------------------------------------------")
+
+	print("Command Test")
+	c= Command()
+	c.setParam([32,33,34,35,36])
+	c.setId(5)
+
+	print ("----------------------------------------------------")
+	print (c.toArray())
+	print ("----------------------------------------------------")
+	print (c.toString())
+	print ("----------------------------------------------------")

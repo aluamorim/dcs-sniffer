@@ -1,0 +1,379 @@
+"""
+    appcontroller.py
+
+   
+    Author: Anderson Amorim
+    Date: 24/02/2017
+"""
+
+import sys
+import time
+import design
+from PyQt5 import QtCore, QtGui
+from collections import deque
+from modules.entity import *
+from modules.controller import *
+from modules.i2cbridge import *
+
+
+class PackageViewController(object):
+
+    tableWidget=None
+    treeWidget=None
+    rawWidget=None
+    row_count=0
+
+    def __init__(self, table, tree, raw):
+        self.tableWidget = table
+        self.treeWidget= tree
+        self.rawWidget = raw
+        self.row_count= 0
+
+    def clearTable(self):
+        self.tableWidget.setRowCount(0)
+
+    def addRow(self, pckt=None, rowCnt=0, globalCnt=0):
+        #prepare table data
+        self.tableWidget.setRowCount(rowCnt)
+        rowCnt -=1
+
+        item = QtGui.QTableWidgetItem(str(globalCnt))
+        item.setTextAlignment(QtCore.Qt.AlignHCenter|QtCore.Qt.AlignVCenter|QtCore.Qt.AlignCenter)
+        self.tableWidget.setItem(rowCnt, 0, item)
+        item = QtGui.QTableWidgetItem(pckt.type)
+        item.setTextAlignment(QtCore.Qt.AlignHCenter|QtCore.Qt.AlignVCenter|QtCore.Qt.AlignCenter)
+        self.tableWidget.setItem(rowCnt, 1, item)
+        item = QtGui.QTableWidgetItem(pckt.timeStamp())
+        item.setTextAlignment(QtCore.Qt.AlignHCenter|QtCore.Qt.AlignVCenter|QtCore.Qt.AlignCenter)
+        self.tableWidget.setItem(rowCnt, 2, item)
+        item = QtGui.QTableWidgetItem(" General Info About the Package Number: " + str(globalCnt))
+        self.tableWidget.setItem(rowCnt, 3, item)
+
+    def fillRawPackageForm(self, pckt):
+
+        vec = pckt.toArray()
+
+        for i in range(0, len(vec), 16):
+            row = int(i/16)
+            self.rawWidget.setRowCount(row+1)
+            item = QtGui.QTableWidgetItem(("%04x"%i))
+            item.setTextAlignment(QtCore.Qt.AlignHCenter|QtCore.Qt.AlignVCenter|QtCore.Qt.AlignCenter)
+            self.rawWidget.setItem(row, 0, item)
+
+            word = vec[i:(i+16)]
+            val = '  '
+            char = ''
+            for w in word:
+                val += '%02x '%w
+                if (w>=32 and w <=126): #check if is printable char
+                    char += chr(w) + ' '
+                else:
+                    char += '. '
+
+            item = QtGui.QTableWidgetItem(val)
+            #item.setTextAlignment(QtCore.Qt.AlignHLeft|QtCore.Qt.AlignVCenter|QtCore.Qt.AlignCenter)
+            self.rawWidget.setItem(row, 1, item)
+
+            item = QtGui.QTableWidgetItem(char)
+            item.setTextAlignment(QtCore.Qt.AlignHCenter|QtCore.Qt.AlignVCenter|QtCore.Qt.AlignCenter)
+            self.rawWidget.setItem(row, 2, item)
+
+    def fillHKDetailForm(self, pckt):
+        pass
+
+    def fillPTTDetailForm(self, pckt):
+
+        #######################################################################################
+        msgTypeItem = self.addSubItem(self.treeWidget, "Message Type: ", [pckt.msgType, pckt.msgSubType] )
+        msgType = self.addSubItem(msgTypeItem, "Type: ", [pckt.msgType])
+        self.addDecBinChildren(msgType, pckt.msgType)
+        msgSubType = self.addSubItem(msgTypeItem, "Sub Type: ", [pckt.msgSubType])
+        self.addDecBinChildren(msgSubType, pckt.msgSubType)
+
+        
+        #######################################################################################
+        satCodeItem = self.addSubItem(self.treeWidget, "Satellite Code: ", [pckt.satelliteCode, pckt.satelliteSubCode] )
+        satCode = self.addSubItem(satCodeItem, "Code: ", [pckt.satelliteCode])
+        self.addDecBinChildren(satCode, pckt.satelliteCode)
+        subCode = self.addSubItem(satCodeItem, "Sub Code: ", [pckt.satelliteSubCode])
+        self.addDecBinChildren(subCode, pckt.satelliteSubCode)
+
+        #######################################################################################
+        sourceSiteItem = self.addSubItem(self.treeWidget, "Source Site Code: ", [pckt.sourceSiteCode])
+        self.addDecBinChildren(sourceSiteItem, pckt.sourceSiteCode)
+
+
+        #######################################################################################
+        subSystemItem = self.addSubItem(self.treeWidget, "Sub System: ", [pckt.subsystemType_Number] )
+        subSystemType = self.addSubItem(subSystemItem, "Type: ", [((pckt.subsystemType_Number&0xF0)>>4)])
+        self.addDecBinChildren(subSystemType, ((pckt.subsystemType_Number&0xF0)>>4))
+        subSystemType = self.addSubItem(subSystemItem, "Number: ", [((pckt.subsystemType_Number&0x0F))])
+        self.addDecBinChildren(subSystemType, (((pckt.subsystemType_Number&0x0F))))
+
+        #######################################################################################
+        receiveSiteItem = self.addSubItem(self.treeWidget, "Receive Site Code: ", [pckt.receiveSiteCode] )
+        self.addDecBinChildren(receiveSiteItem, pckt.receiveSiteCode)
+
+        #######################################################################################
+        spareItem = self.addSubItem(self.treeWidget, "Spare: ", [pckt.spare] )
+        self.addDecBinChildren(spareItem, pckt.spare)
+
+        #######################################################################################
+        channelItem = self.addSubItem(self.treeWidget, "Channel Id: ", [pckt.channelId] )
+        self.addDecBinChildren(channelItem, pckt.channelId)
+
+        #######################################################################################
+        timeTagItem = self.addSubItem(self.treeWidget, "Time Tag: ", pckt.timeTag )
+        timeTagItem.setText(1, pckt.timeStamp())
+        timeTag = self.addChild(timeTagItem, "Hex: ", ''.join(("%02x "%(c) for c in pckt.timeTag)))
+        
+        year = self.addSubItem(timeTagItem, "Year: ", [pckt.timeTag[0]])
+        self.addDecBinChildren(year, pckt.timeTag[0])
+        month = self.addSubItem(timeTagItem, "Month: ", [(pckt.timeTag[1]%13)])
+        self.addDecBinChildren(month, pckt.timeTag[1])
+        day = self.addSubItem(timeTagItem, "Day: ", [pckt.timeTag[2]])
+        self.addDecBinChildren(day, pckt.timeTag[2])
+        hour = self.addSubItem(timeTagItem, "Hour: ", [pckt.timeTag[3]])
+        self.addDecBinChildren(hour, pckt.timeTag[3])
+        minute = self.addSubItem(timeTagItem, "Minute: ", [pckt.timeTag[4]])
+        self.addDecBinChildren(minute, pckt.timeTag[4])
+        sec = self.addSubItem(timeTagItem, "Second: ", [pckt.timeTag[5]])
+        self.addDecBinChildren(sec, pckt.timeTag[5])
+
+        #######################################################################################
+        freqItem = self.addSubItem(self.treeWidget, "Frequency Measure: ", pckt.freqMeasure )
+        self.addDecBinChildren(freqItem, pckt.freqValue())
+
+        #######################################################################################
+        msgLengthItem = self.addSubItem(self.treeWidget, "Message Length: ", [pckt.msgLength] )
+        self.addDecBinChildren(msgLengthItem, pckt.msgLength) 
+
+        #######################################################################################
+        channelStatusItem = self.addSubItem(self.treeWidget, "Channel Status: ", [pckt.channelStatus] )
+        self.addDecBinChildren(channelStatusItem, pckt.channelStatus)        
+
+        #######################################################################################
+        receivedSyncWordItem = self.addSubItem(self.treeWidget, "Received Sync Word: ", [pckt.receivedSyncWord] )
+        self.addDecBinChildren(receivedSyncWordItem, pckt.receivedSyncWord)    
+
+        #######################################################################################
+        platformIdItem = self.addSubItem(self.treeWidget, "Platform Id: ", pckt.platformId )
+        self.addDecBinChildren(platformIdItem, pckt.platformIdValue())
+
+        #######################################################################################
+        sensorDataItem = self.addSubItem(self.treeWidget, "Sensor Data: ", pckt.sensorData )
+        for i in range(0, len(pckt.sensorData), 4):
+            w = pckt.sensorData[i:(i+4)]
+            wordItem = self.addSubItem(sensorDataItem, ("Word[%d]: "%int(i/4)), w )
+        
+
+    # Tree Widget Related Methods - Adds a new SubItem to a previous item
+    def addSubItem(self, item, name, values):
+        subItem = QtGui.QTreeWidgetItem(item)
+        subItem.setText(0, name)
+        str = ''
+        for v in values:
+            str += ('%02x '%(v))
+        subItem.setText(1, str)
+        return subItem
+    # Tree Widget Related Methods - Adds decimal and binary values subitens
+    def addDecBinChildren(self, item, value):
+        decValue = QtGui.QTreeWidgetItem(item)
+        decValue.setText(0, "Dec:")
+        decValue.setText(1, str(value))
+
+        binValue = QtGui.QTreeWidgetItem(item)
+        binValue.setText(0, "Bin:")
+        binValue.setText(1, bin(value)) 
+
+    def addChild(self, item, name, value):
+        child = QtGui.QTreeWidgetItem(item)
+        child.setText(0, name)
+        child.setText(1, value)
+        return child 
+
+    def filterTable(self, types, pcktList):
+
+        self.clearTable()
+        row=1
+        for pckt in pcktList:
+            if (pckt.type in types):
+                self.addRow(pckt, row, row)
+                row+=1
+
+        # allRows = self.tableWidget.rowCount()
+        # row = 0
+        # while (allRows>0 and row != allRows):
+        #     t = self.tableWidget.item(row,1)
+        #     if  (t not in types):
+        #         self.tableWidget.removeRow(row)
+            
+        #     row +=1
+        #     allRows = self.tableWidget.rowCount()
+
+
+        
+
+class AppController(object):
+
+    connected=False
+    deviceController=0
+    viewController=0
+    parentApp=0
+    readPackagesFlag=False
+    packageList=0
+    packageListCnt=0
+    globalPackageCnt=0
+    I2C_BRIDGE_SERVER='192.168.0.109'
+    MAX_PACKAGE_LIST_SIZE = 5
+
+    # Use the 'connected' parameter when running the program
+    # with a valid connection to the device board. For example,
+    # when running on Raspberry Pi
+    def __init__(self, app=None, connected=False, server=None):
+        
+        self.parentApp = app
+        if (server!=None):
+            self.I2C_BRIDGE_SERVER = server
+        self.deviceController = Controller(NetConnectionself.I2C_BRIDGE_SERVER)) # for remote i2c bridge
+        #self.deviceController = Controller() # for local i2c iface
+        self.connected = connected
+        if(connected==True):
+            self.deviceController.startController()
+        
+        self.packageList = deque()
+        self.packageListCnt=0
+
+        self.viewController = PackageViewController(self.parentApp.mainTableWidget, 
+            self.parentApp.treeWidget, self.parentApp.rawDataTable)
+
+
+    def resetController(self):
+        self.globalPackageCnt = 0
+        #self.parentApp.mainTableWidget.clear()
+        self.parentApp.mainTableWidget.setRowCount(0)
+        self.parentApp.rawDataTable.setRowCount(0)
+        self.parentApp.treeWidget.clear()
+        self.packageListCnt = 0
+        self.packageList.clear()
+
+    def actionConnect(self):
+        self.deviceController.startController()
+        self.connected = True
+    def actionDisconnect(self):
+        self.deviceController.stopController()
+        self.connected = False
+    def actionEchoTest(self):
+        try:
+            self.deviceController.sendEcho()
+            return True
+        except:
+            return False
+
+    def actionControlRTC(self, cmdId):
+        try:
+            self.deviceController.simpleRun(cmdId)
+            return True
+        except:
+            return False
+        # self.deviceController.pauseRTC()
+        # return True
+    
+    def actionSetRTC(self):
+
+        date = self.parentApp.rtcDateEdit.date()
+        vec = range(0,8)
+        vec[0] = date.year()-1900
+        vec[1] = date.month()
+        vec[2] = date.day()
+
+        time = self.parentApp.rtcTimeEdit.time()
+        vec[3] = time.hour()
+        vec[4] = time.minute()
+        vec[5] = time.second()
+        vec[6] = 1
+        vec[7] = 1
+        rtc = RTC()
+        rtc.load(vec)
+        ret = True
+        if (self.connected==True):
+            try:
+                self.deviceController.setRTC(rtc)
+            except:
+                ret =  False
+            
+        return ret
+
+    def actionFilterSelect(self, filterList):
+        self.viewController.filterTable(filterList, self.packageList)
+
+    def actionUpdateHK(self, cfg_bytes):
+        try:
+            self.deviceController.updateHKConfig(cfg_bytes)
+            return True
+        except:
+            return False
+
+
+    '''
+    This method reads PTT and HK packages from the device
+    while readPackagesFlag is True. The mainTable from
+    parent form is update at every new package
+    '''
+    def actionPackageReaderThread(self):
+
+        default_delay = 0.2
+        hk_timout = int(self.parentApp.hkRequestSpinBox.value()) /default_delay
+        while (self.readPackagesFlag==True):
+            time.sleep(default_delay)
+            pckt=None
+
+            if (self.connected==True):
+                if (hk_timout == 0):
+                    hk_timout = int(self.parentApp.hkRequestSpinBox.value()) /default_delay # updates timeout
+                    if (self.parentApp.checkedFilters['HK']):
+                        pckt = self.deviceController.getHKPackage()
+                elif (self.parentApp.checkedFilters['PTT']):
+                    pckt = self.deviceController.getPTTPackage()
+            
+            hk_timout-=1
+            if (pckt == None):
+                self.parentApp.statusBar().showMessage("Waiting for Available Packages... ")
+                continue
+
+            if (self.packageListCnt > self.MAX_PACKAGE_LIST_SIZE):
+                # TODO update table removing the first line
+                self.packageListCnt = self.MAX_PACKAGE_LIST_SIZE
+                self.packageList.popleft()
+                self.parentApp.mainTableWidget.removeRow(0)
+
+            self.packageList.append(pckt)
+            self.globalPackageCnt +=1
+            row_cnt = (self.packageListCnt+1)
+            self.viewController.addRow(pckt, row_cnt, self.globalPackageCnt)
+            self.packageListCnt = self.packageListCnt+1
+
+            
+
+                #QtGui.QMessageBox.critical(None, "Fail", "Communication Failure! Check device conncection.")
+
+    # gets selected package detail from the given selected row
+    def actionRowSelected(self, rowNumber=-1):
+        
+        self.parentApp.treeWidget.clear() # clear previous msg details
+        if (rowNumber == -1):
+            return
+
+        pckt = self.packageList[rowNumber]
+        type = self.parentApp.mainTableWidget.item(rowNumber, 1) ## type columm
+        if (type.text()=='PTT'):
+            self.viewController.fillPTTDetailForm(pckt)
+        elif(type.text()=='HK'):
+            self.viewController.fillHKDetailForm(pckt);
+        else:
+            return
+        
+        self.viewController.fillRawPackageForm(pckt)
+        
+
+    
